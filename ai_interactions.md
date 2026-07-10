@@ -10,7 +10,7 @@
 
 **What task did you give the agent?**
 
-<!-- Describe the goal you asked the agent to accomplish -->
+<!-- I asked the model to describe how platforms like spotify or youtube predict what content users would like and to include examples of collaborative filtering and content based filtering.-->
 
 **Prompts used:**
 
