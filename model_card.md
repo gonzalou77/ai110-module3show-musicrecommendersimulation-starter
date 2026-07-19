@@ -2,73 +2,100 @@
 
 ## 1. Model Name  
 
-Give your model a short, descriptive name.  
-Example: **VibeFinder 1.0**  
+### VibeySongMatcher 9000
+
+A simple music recommender that matches songs to a listener's taste profile.
 
 ---
 
-## 2. Intended Use  
+## 2. Goal / Task and Intended Use  
 
-Describe what your recommender is designed to do and who it is for. 
+**Goal.** VibeySongMatcher 9000 tries to guess which songs a listener will like. It takes a
+taste profile and returns the top 5 songs that fit it best. It also gives a short
+"Why" line for each pick.
 
-Prompts:  
+**Who it is for.** This is a classroom project. It is meant for learning and
+experiments, not for real users or a real app.
 
-- What kind of recommendations does it generate  
-- What assumptions does it make about the user  
-- Is this for real users or classroom exploration  
+**Assumptions.** It assumes the listener has one favorite genre and one mood. It
+also assumes their taste can be described by a few numbers (how acoustic, how
+fast, how upbeat).
 
----
-
-## 3. How the Model Works  
-
-Explain your scoring approach in simple language.  
-
-Prompts:  
-
-- What features of each song are used (genre, energy, mood, etc.)  
-- What user preferences are considered  
-- How does the model turn those into a score  
-- What changes did you make from the starter logic  
-
-Avoid code here. Pretend you are explaining the idea to a friend who does not program.
+**Not intended for.** Do not use it to make real recommendations for real people.
+Do not use it to judge artists or decide what music gets played. It is too small
+and too biased for any real decision. It also cannot help anyone whose taste falls
+outside its seven genres.
 
 ---
 
-## 4. Data  
+## 3. How the Model Works (Algorithm Summary)  
 
-Describe the dataset the model uses.  
+Think of it like a points game. Each song earns points for how well it fits the
+listener.
 
-Prompts:  
+- If the song's genre matches the listener's favorite genre, it earns 2 points.
+- If the song's mood matches, it earns 1 more point.
+- Then the song earns up to 1 point each for being close on three things: how
+  acoustic it is, how fast it is, and how upbeat it is.
+- A perfect song can earn 6 points total.
 
-- How many songs are in the catalog  
-- What genres or moods are represented  
-- Did you add or remove data  
-- Are there parts of musical taste missing in the dataset  
+The closer a song is to what the listener wants, the more partial points it gets.
+We then sort every song by its points and show the top 5.
+
+We also fixed a few problems from the starter code. We stopped bad inputs from
+making scores go negative. We made genre matching ignore capital letters and extra
+spaces. And we made ties break in the same way every time instead of by luck.
+
+---
+
+## 4. Data Used  
+
+- The catalog has **20 songs**.
+- Each song has a genre, a mood, and five numbers: energy, tempo, valence
+  (upbeat-ness), danceability, and acousticness.
+- There are **7 genres** (lofi, pop, rock, synthwave, ambient, jazz, indie pop)
+  and **6 moods** (chill, happy, intense, moody, relaxed, focused).
+- We did not add or remove songs. We used the starter dataset as is.
+- A lot of musical taste is missing. There is no hip-hop, classical, EDM, metal,
+  country, or R&B. There are also no sad or low-energy songs, because valence only
+  ranges from 0.45 to 0.86.
 
 ---
 
 ## 5. Strengths  
 
-Where does your system seem to work well  
-
-Prompts:  
-
-- User types for which it gives reasonable results  
-- Any patterns you think your scoring captures correctly  
-- Cases where the recommendations matched your intuition  
+- It works well for the five built-in personas. Each one gets songs that clearly
+  match its taste.
+- It is confident and accurate inside a genre. Top matches score near the max (6.0).
+- The "Why" lines make sense and are easy to read.
+- It is fast, simple, and easy to understand.
+- The picks matched our intuition: a "Gym Beast" gets loud rock, a "Study Session"
+  gets calm lofi.
 
 ---
 
-## 6. Limitations and Bias 
+## 6. Observed Behavior / Biases  
 
-Where the system struggles or behaves unfairly. 
+Where the system struggles or behaves unfairly.
 
-Prompts:  
+The biggest pattern is a **filter bubble**. Each profile gets locked into one
+genre and never leaves it. A "Study Session" profile just returns all five lofi
+songs and nothing else.
 
-- Features it does not consider  
-- Genres or moods that are underrepresented  
-- Cases where the system overfits to one preference  
-- Ways the scoring might unintentionally favor some users  
+Our experiments surfaced a strong filter-bubble tendency: because each genre in
+the dataset is tied to an almost fixed mood (e.g. rock is always "intense," jazz
+always "relaxed"), the genre (2 pts) and mood (1 pt) points effectively measure
+the same thing, so half of a song's score comes from one underlying attribute and
+the numeric preferences barely matter. As a result the top-k recommendations
+collapse onto a single genre cluster — a "Study Session" profile simply returns
+all five lofi tracks — with no diversity, novelty, or exploration because the
+recommender just sorts by score and slices the top results. The catalog also bakes
+in a positivity bias: valence only ranges from 0.45 to 0.86, so a user who wants
+genuinely sad or low-energy music can never be served well, and several common
+genres (hip-hop, classical, EDM, and others) are missing entirely, leaving those
+listeners with zero genre credit on every song. Finally, when a profile is empty
+or partial the defaults land near the dataset averages, quietly steering
+low-information users toward the same mainstream pop tracks.
 
 ---
 
@@ -85,30 +112,113 @@ Prompts:
 
 No need for numeric metrics unless you created some.
 
+### Profiles tested
+
+We evaluated the five built-in listener personas: **Night Driver** (synthwave /
+moody), **Study Session** (lofi / focused), **Gym Beast** (rock / intense),
+**Jazz Cafe** (jazz / relaxed), and **Ambient Dreamer** (ambient / chill). For
+each we looked at the top-k recommendations, the numeric score, and the "Why"
+explanation to check whether the picks matched the persona's stated taste. The
+most interesting finding was how *cleanly* each profile locked onto its own genre:
+scores for the top matches clustered tightly near the 6.0 maximum (5.6–6.0), and
+then dropped sharply for anything outside the target genre. That gap confirmed the
+filter-bubble effect we saw elsewhere — the recommender is confident and accurate
+within a genre, but essentially never crosses genre lines.
+
+### Pairwise comparisons
+
+<!-- Night Driver vs. Study Session: Night Driver returns all synthwave/moody
+tracks (Electric Skyline, Night Drive Loop) while Study Session returns lofi/
+focused tracks (Focus Flow, Quiet Deadlines). The lists are completely disjoint.
+This makes sense: the genre point (2) plus the tightly-coupled mood point (1)
+anchor each profile to its own cluster, and the numeric features only reorder
+within that cluster. -->
+
+<!-- Study Session vs. Ambient Dreamer: both are low-energy, high-acousticness,
+slow-tempo profiles, so numerically they are close — yet the outputs barely
+overlap because genre is exact-match. Study Session tops out on lofi (5.99) and
+Ambient Dreamer on ambient (5.98), and each only reaches into the other's genre
+far down the list at a much lower score. This shows genre dominates even when the
+underlying audio features are very similar. -->
+
+<!-- Gym Beast vs. the rest: Gym Beast's top scores (5.64–5.68) are the lowest
+"best matches" of any profile. This makes sense because its target tempo (152 BPM)
+and near-zero acousticness sit at the extreme edge of the catalog, so even the
+best rock tracks lose a little partial credit on the numeric terms — the ceiling
+is lower when your taste lives at the boundary of the data. -->
+
+<!-- Jazz Cafe vs. Ambient Dreamer: both are calm, acoustic-leaning profiles and
+both return an in-genre pair near 5.98, but their #3 pick diverges sharply
+(Jazz Cafe -> Library Rain at 2.73; Ambient Dreamer -> Library Rain at 3.81).
+The same fallback song scores differently because acousticness/valence closeness
+to each profile differs, illustrating that once a genre runs out of songs, the
+numeric features quietly decide the overflow ranking. -->
+
+<!-- Night Driver vs. Gym Beast: both are higher-energy profiles, but Night Driver
+matches into a 3-song synthwave pocket with very high scores (5.92–5.98) while Gym
+Beast matches rock at lower scores. The difference is data density and feature
+extremity: synthwave targets sit near the middle of the tempo/acoustic range where
+matches are easy, rock targets sit at the edge where they are penalized. -->
+
+<!-- Night Driver vs. Jazz Cafe: opposite ends of the mood/energy spectrum
+(moody + mid-tempo vs. relaxed + acoustic), and the outputs share no songs. Both
+top out near 5.9x within their own genre, but Jazz Cafe falls off a cliff after
+just two jazz songs (#3 is Library Rain at 2.73) because jazz only has two tracks,
+whereas synthwave has three, so Night Driver stays in-genre longer. -->
+
+<!-- Night Driver vs. Ambient Dreamer: both lean calm/atmospheric, yet they never
+overlap in the top picks. Ambient Dreamer even produces a tie at 5.98 (Spacewalk
+Thoughts and Starlit Fields) because its two ambient songs are near-identical on
+every feature; Night Driver's synthwave picks are more spread out. This shows how
+a tiny, homogeneous genre pocket collapses into near-identical scores. -->
+
+<!-- Study Session vs. Gym Beast: the starkest contrast — low energy/slow/acoustic
+vs. high energy/fast/non-acoustic. Completely disjoint lists, and Study Session's
+best score (5.99) beats Gym Beast's best (5.68). That gap exists because Study
+Session's targets sit near catalog-typical lofi values while Gym Beast's live at
+the tempo/acousticness extremes, costing it partial credit even on ideal songs. -->
+
+<!-- Study Session vs. Jazz Cafe: both are calm, acoustic-leaning, slow profiles,
+so numerically they are neighbors, but genre exact-match keeps them apart — lofi
+for one, jazz for the other. Tellingly, each surfaces the *other's* type of song
+only as a low-scoring fallback (Jazz Cafe's #3 is a lofi track at 2.73), proving
+genre, not audio similarity, is drawing the boundary. -->
+
+<!-- Gym Beast vs. Jazz Cafe: near-mirror images (intense/fast/energetic vs.
+relaxed/slow/acoustic) with zero shared songs. Jazz Cafe scores higher at the top
+(5.98 vs. 5.68) despite jazz having fewer songs, because jazz targets sit in a
+denser, more central feature region while Gym Beast's extreme targets are always
+slightly penalized. Genre size did not help Gym Beast; feature position hurt it. -->
+
+<!-- Gym Beast vs. Ambient Dreamer: the widest energy gap of any pair (intense vs.
+chill), and again fully disjoint. Ambient Dreamer reaches a near-perfect 5.98 tie
+while Gym Beast caps at 5.68 — same story as elsewhere: profiles whose targets sit
+in the middle of the data hit higher ceilings than profiles at the edges,
+regardless of how well the genre itself is represented. -->
+
 ---
 
-## 8. Future Work  
+## 8. Ideas for Improvement  
 
-Ideas for how you would improve the model next.  
+If we kept working on this, we would:
 
-Prompts:  
-
-- Additional features or preferences  
-- Better ways to explain recommendations  
-- Improving diversity among the top results  
-- Handling more complex user tastes  
+1. **Add diversity to the results.** Right now every pick is the same genre. We
+   would mix in a few songs from nearby genres so the list is not a bubble.
+2. **Give partial credit for similar genres.** "pop" and "indie pop" should count
+   as close, not as total strangers. A genre similarity map would fix this.
+3. **Grow the dataset.** More songs, more genres, and some sad or low-energy tracks
+   so every kind of listener gets served.
 
 ---
 
 ## 9. Personal Reflection  
 
-A few sentences about your experience.  
-
-Prompts:  
-
-- What you learned about recommender systems  
-- Something unexpected or interesting you discovered  
-- How this changed the way you think about music recommendation apps  
+I learned that a recommender is only as good as its data and its rules. Small
+choices, like giving genre 2 points, can quietly control the whole result. The
+most surprising part was how easily the system fell into a filter bubble, even
+though the code looked fair. It made me realize that real music apps have to work
+hard to add variety on purpose, or they would just play the same kind of song over
+and over.
 
 ---
 
