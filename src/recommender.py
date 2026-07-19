@@ -24,10 +24,7 @@ TEMPO_MAX = 180.0
 
 @dataclass
 class Song:
-    """
-    Represents a song and its attributes.
-    Required by tests/test_recommender.py
-    """
+    """Represents a song and its attributes."""
     id: int
     title: str
     artist: str
@@ -42,10 +39,7 @@ class Song:
 
 @dataclass
 class UserProfile:
-    """
-    Represents a user's taste preferences.
-    Required by tests/test_recommender.py
-    """
+    """Represents a user's taste preferences."""
     favorite_genre: str
     favorite_mood: str
     target_energy: float
@@ -68,10 +62,7 @@ def _normalize_tempo(bpm: float) -> float:
 
 
 def _closeness(a: float, b: float) -> float:
-    """
-    Convert a distance between two 0-1 values into a closeness score.
-    Returns 1.0 when identical, approaching 0.0 as they diverge.
-    """
+    """Return a closeness score for two 0-1 values (1.0 identical, toward 0.0 as they diverge)."""
     return 1.0 - abs(a - b)
 
 
@@ -85,12 +76,7 @@ def _weighted_score(
     song_tempo_bpm: float,
     song_valence: float,
 ) -> Tuple[float, List[str]]:
-    """
-    Shared content-based scoring used by both the functional and OOP APIs.
-
-    Rewards songs whose features are close to the user's preferences.
-    Returns (score, reasons) where score is in [0, 1].
-    """
+    """Score a song's features against user targets, returning (score in [0, 1], reasons)."""
     acoustic_c = _closeness(target_acousticness, song_acousticness)
     tempo_c = _closeness(_normalize_tempo(target_tempo_bpm),
                          _normalize_tempo(song_tempo_bpm))
@@ -121,14 +107,13 @@ def _weighted_score(
 
 
 class Recommender:
-    """
-    OOP implementation of the recommendation logic.
-    Required by tests/test_recommender.py
-    """
+    """OOP implementation of the recommendation logic."""
     def __init__(self, songs: List[Song]):
+        """Store the catalog of songs to recommend from."""
         self.songs = songs
 
     def _score(self, user: UserProfile, song: Song) -> Tuple[float, List[str]]:
+        """Score one song against a user profile, returning (score, reasons)."""
         return _weighted_score(
             target_genre=user.favorite_genre,
             target_acousticness=user.target_acousticness,
@@ -141,6 +126,7 @@ class Recommender:
         )
 
     def recommend(self, user: UserProfile, k: int = 5) -> List[Song]:
+        """Return the top-k songs ranked by score, highest first."""
         ranked = sorted(
             self.songs,
             key=lambda s: self._score(user, s)[0],
@@ -149,15 +135,13 @@ class Recommender:
         return ranked[:k]
 
     def explain_recommendation(self, user: UserProfile, song: Song) -> str:
+        """Return a human-readable string of a song's score and reasons."""
         score, reasons = self._score(user, song)
         return f"Score {score:.2f}: " + ", ".join(reasons)
 
 
 def load_songs(csv_path: str) -> List[Dict]:
-    """
-    Loads songs from a CSV file, converting numeric fields to floats.
-    Required by src/main.py
-    """
+    """Load songs from a CSV file as a list of dicts, converting numeric fields to floats."""
     print(f"Loading songs from {csv_path}...")
     numeric_fields = {
         "energy", "tempo_bpm", "valence", "danceability", "acousticness",
@@ -178,38 +162,70 @@ def load_songs(csv_path: str) -> List[Dict]:
     return songs
 
 
-def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
-    """
-    Scores a single song against user preferences.
+# ---------------------------------------------------------------------------
+# Point-based scoring (used by score_song)
+#
+# Categorical features are all-or-nothing; numeric features earn partial
+# credit scaled by closeness so near-misses still count.
+#   genre match ....... 2 points  (strongest signal)
+#   mood match ........ 1 point
+#   acousticness ...... up to 1 point  (1 x closeness)
+#   tempo_bpm ......... up to 1 point  (normalized, then 1 x closeness)
+#   valence ........... up to 1 point  (1 x closeness)
+# Maximum possible score = 6.0 (perfect match on everything).
+# ---------------------------------------------------------------------------
+POINTS = {
+    "genre": 2.0,
+    "mood": 1.0,
+    "acousticness": 1.0,
+    "tempo_bpm": 1.0,
+    "valence": 1.0,
+}
 
-    user_prefs may contain: genre, acousticness, tempo_bpm, valence.
-    Missing keys fall back to neutral defaults.
-    Returns (score, reasons).
-    """
-    return _weighted_score(
-        target_genre=user_prefs.get("genre", ""),
-        target_acousticness=user_prefs.get("acousticness", 0.5),
-        target_tempo_bpm=user_prefs.get("tempo_bpm", 120.0),
-        target_valence=user_prefs.get("valence", 0.6),
-        song_genre=song["genre"],
-        song_acousticness=song["acousticness"],
-        song_tempo_bpm=song["tempo_bpm"],
-        song_valence=song["valence"],
-    )
+
+def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
+    """Score a song against user preferences with a point system, returning (score in [0, 6], reasons)."""
+    reasons: List[str] = []
+    score = 0.0
+
+    # Categorical features: all-or-nothing points.
+    if user_prefs.get("genre") and user_prefs["genre"] == song["genre"]:
+        score += POINTS["genre"]
+        reasons.append(f"matches your favorite genre ({song['genre']})")
+    if user_prefs.get("mood") and user_prefs["mood"] == song["mood"]:
+        score += POINTS["mood"]
+        reasons.append(f"matches your mood ({song['mood']})")
+
+    # Numeric features: partial credit scaled by closeness (1 - |target - value|).
+    acoustic_c = _closeness(user_prefs.get("acousticness", 0.5),
+                            song["acousticness"])
+    tempo_c = _closeness(_normalize_tempo(user_prefs.get("tempo_bpm", 120.0)),
+                         _normalize_tempo(song["tempo_bpm"]))
+    valence_c = _closeness(user_prefs.get("valence", 0.6), song["valence"])
+
+    score += POINTS["acousticness"] * acoustic_c
+    score += POINTS["tempo_bpm"] * tempo_c
+    score += POINTS["valence"] * valence_c
+
+    if acoustic_c >= 0.8:
+        reasons.append("acoustic feel is close to what you like")
+    if tempo_c >= 0.8:
+        reasons.append("tempo is a good match")
+    if valence_c >= 0.8:
+        reasons.append("similar mood/positivity")
+    if not reasons:
+        reasons.append("partial match on your preferences")
+
+    return score, reasons
 
 
 def recommend_songs(
     user_prefs: Dict, songs: List[Dict], k: int = 5
 ) -> List[Tuple[Dict, float, str]]:
-    """
-    Functional implementation of the recommendation logic.
-    Returns a list of (song_dict, score, explanation) sorted by score desc.
-    Required by src/main.py
-    """
+    """Return the top-k (song, score, explanation) tuples sorted by score descending."""
     scored: List[Tuple[Dict, float, str]] = []
     for song in songs:
         score, reasons = score_song(user_prefs, song)
         scored.append((song, score, ", ".join(reasons)))
 
-    scored.sort(key=lambda item: item[1], reverse=True)
-    return scored[:k]
+    return sorted(scored, key=lambda item: item[1], reverse=True)[:k]

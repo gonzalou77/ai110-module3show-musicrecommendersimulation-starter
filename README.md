@@ -109,6 +109,49 @@ UserProfile (taste targets) ─────────┤
                  recommendations + explanations
 ```
 
+### Algorithm recipe (finalized plan)
+
+This is the exact procedure the recommender follows, start to finish:
+
+1. **Load the catalog.** Read `data/songs.csv`, casting `id` to `int` and the
+   numeric audio features to `float`.
+2. **Take the taste profile.** Read the user's `genre`, `acousticness`,
+   `tempo_bpm`, and `valence` targets.
+3. **For each song, compute per-feature closeness:**
+   - `acousticness`, `valence`: `closeness = 1 − |target − value|`
+   - `tempo_bpm`: min-max normalize both target and song to 0–1 over the fixed
+     60–180 BPM range, then `1 − |normalized_target − normalized_value|`
+   - `genre`: `1.0` on an exact match, else `0.0`
+4. **Combine into one score** as a weighted sum with fixed weights that sum to
+   1.0 (so a perfect match = 1.0):
+   `0.30·acousticness + 0.30·tempo + 0.25·genre + 0.15·valence`
+5. **Collect reasons** for any feature whose closeness is strong
+   (genre match, or numeric closeness ≥ 0.80) to explain the pick.
+6. **Rank and cut.** Sort all songs by score descending and return the top `k`,
+   each with its score and explanation.
+
+### Potential biases to expect
+
+Because the scoring is a fixed weighted sum over a small, hand-built catalog,
+a few biases are predictable:
+
+- **Genre lock-in.** The 0.25 genre boost is an all-or-nothing bonus, so songs
+  in the favorite genre tend to dominate the top ranks even when their numeric
+  features are a weaker match. Users get more of the same genre and little
+  cross-genre discovery. (Observed directly in the tempo/valence experiment
+  below — synthwave tracks held the top 3 under every weighting.)
+- **Mood underweighting.** `valence` carries the smallest weight (0.15), so the
+  recommender can surface songs whose mood is off from what the user asked for
+  if their pace and genre line up. Mood acts only as a tiebreaker.
+- **Tempo-range clipping.** Tempos are normalized against a fixed 60–180 BPM
+  window and clamped, so any song outside that range collapses to the same
+  boundary value and stops being distinguishable by tempo.
+- **Popularity/coverage bias.** The catalog is tiny (20 songs) and
+  genre-clustered, so results reflect what happens to be in the dataset rather
+  than the full space of music — a few artists and genres are over-represented.
+- **Ignored signals.** `mood`, `energy`, `danceability`, and lyrics are not
+  scored at all, so two songs that "feel" very different can score identically.
+
 ---
 
 ## Getting Started
@@ -148,15 +191,49 @@ You can add more tests in `tests/test_recommender.py`.
 
 ## Sample Recommendation Output
 
-Paste a sample of your recommender's output here as a text block so a reader can see what it produces:
+Running `python src/main.py` from the project root against the 20-song catalog,
+using the taste profile `genre=synthwave`, `mood=moody`, `acousticness=0.5`,
+`tempo_bpm=150`, `valence=0.85` produces:
 
 ```
-# e.g.:
-# User profile: genre=indie, mood=chill, energy=low
-# Recommendations:
-#   1. ...
-#   2. ...
-#   3. ...
+Loading songs from data/songs.csv...
+Loaded 20 songs.
+
+================================================
+              TOP RECOMMENDATIONS
+================================================
+
+#1  Electric Skyline  -  Voltline
+    Score: 5.04
+    Why:
+      - matches your favorite genre (synthwave)
+      - matches your mood (moody)
+
+#2  Night Drive Loop  -  Neon Echo
+    Score: 5.03
+    Why:
+      - matches your favorite genre (synthwave)
+      - matches your mood (moody)
+
+#3  Golden Hour Drive  -  Neon Echo
+    Score: 5.02
+    Why:
+      - matches your favorite genre (synthwave)
+      - matches your mood (moody)
+
+#4  Rooftop Lights  -  Indigo Parade
+    Score: 2.59
+    Why:
+      - acoustic feel is close to what you like
+      - similar mood/positivity
+
+#5  Summer Bloom  -  Neon Echo
+    Score: 2.55
+    Why:
+      - acoustic feel is close to what you like
+      - similar mood/positivity
+
+================================================
 ```
 
 **Screenshot or video** *(optional)*: <!-- Insert a screenshot or demo video link here -->
@@ -165,11 +242,44 @@ Paste a sample of your recommender's output here as a text block so a reader can
 
 ## Experiments You Tried
 
-Use this section to document the experiments you ran. For example:
+### Experiment: tempo vs. valence weighting (2:1 vs. 1:1)
 
-- What happened when you changed the weight on genre from 2.0 to 0.5
-- What happened when you added tempo or valence to the score
-- How did your system behave for different types of users
+I wanted to know how much the mood feature (`valence`) should count relative
+to the pace feature (`tempo_bpm`). Both are compared on a normalized 0–1 scale,
+so their relative influence comes entirely from their weights.
+
+I ran the same taste profile (`genre=synthwave`, `acousticness=0.5`,
+`tempo_bpm=150`, `valence=0.85`) under two settings, holding `acousticness`
+(0.30) and `genre` (0.25) fixed and splitting the remaining 0.45:
+
+- **2:1 (shipped):** `tempo_bpm=0.30`, `valence=0.15`
+- **1:1:** `tempo_bpm=0.225`, `valence=0.225`
+
+| Rank | 2:1 (tempo-favored) | 1:1 (balanced) |
+| --- | --- | --- |
+| 1 | Electric Skyline — **0.764** | Electric Skyline — 0.761 |
+| 2 | Night Drive Loop — **0.762** | Night Drive Loop — 0.760 |
+| 3 | Golden Hour Drive — **0.756** | Golden Hour Drive — 0.757 |
+| 4 | Rooftop Lights — 0.634 | Rooftop Lights — **0.647** |
+| 5 | Summer Bloom — 0.621 | Summer Bloom — **0.635** |
+
+**What happened:** the top-5 ordering did not change. The genre exact-match
+boost (0.25) is large enough that all three synthwave tracks stay on top
+regardless of the tempo/valence split.
+
+**The interesting effect is in the scores, not the ranks.** The three
+synthwave winners have *low* valence (~0.50, far from the 0.85 target), so
+raising the valence weight slightly *lowered* their scores. The indie-pop
+runners-up (Rooftop Lights, Summer Bloom) have *high* valence (~0.80), so they
+*gained* under 1:1. The gap between #3 and #4 shrank from 0.122 (2:1) to
+0.110 (1:1) — i.e. balancing the weights pulls high-mood, wrong-genre songs
+closer to breaking into the top ranks.
+
+**Takeaway:** I kept the 2:1 split. Tempo defines the listening context
+(driving/workout vs. study/ambient) and should dominate; valence is a
+fine-tuner. On this small, genre-clustered catalog the choice barely moves the
+results, but 2:1 correctly keeps mood as a tiebreaker rather than letting a
+bright-but-off-pace track climb the list.
 
 ---
 
