@@ -305,8 +305,18 @@ Read and complete `model_card.md`:
 
 Write 1 to 2 paragraphs here about what you learned:
 
-- about how recommenders turn data into predictions
-- about where bias or unfairness could show up in systems like this
+My biggest learning moment was seeing how much synthetic data could expand our
+testing. Instead of only running the five built-in personas, we made up adversarial
+and edge-case profiles on purpose, like out-of-range values, empty profiles, and
+typo'd genres, and those weird inputs exposed real scoring bugs the normal profiles
+never would have. AI tools helped a lot here, especially with finding the right
+methods to score songs without mutating the data, but I still had to double-check
+the sorting and tie-breaking myself, since that is easy to get subtly wrong.
 
-
-
+What surprised me most was how convincing a simple model can feel. It just adds up
+points, with no machine learning, yet the results really feel like recommendations,
+and I think these simple, transparent approaches are underrated in practical
+discussions because they are so easy to explain and debug. If I extended this
+project, I would build a dashboard instead of terminal output and make each
+recommended song link out to where you can stream it or buy a physical copy,
+turning it from a classroom simulation into something closer to a real tool.
