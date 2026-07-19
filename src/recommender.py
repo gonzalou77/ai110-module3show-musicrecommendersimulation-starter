@@ -62,8 +62,17 @@ def _normalize_tempo(bpm: float) -> float:
 
 
 def _closeness(a: float, b: float) -> float:
-    """Return a closeness score for two 0-1 values (1.0 identical, toward 0.0 as they diverge)."""
-    return 1.0 - abs(a - b)
+    """Return a closeness score for two 0-1 values (1.0 identical, toward 0.0 as they diverge).
+
+    Clamped to [0, 1] so out-of-range inputs cannot produce negative
+    contributions that escape the intended score range.
+    """
+    return _clamp01(1.0 - abs(a - b))
+
+
+def _norm_category(value) -> str:
+    """Normalize a categorical value for comparison (case- and whitespace-insensitive)."""
+    return str(value).strip().lower() if value else ""
 
 
 def _weighted_score(
@@ -81,7 +90,7 @@ def _weighted_score(
     tempo_c = _closeness(_normalize_tempo(target_tempo_bpm),
                          _normalize_tempo(song_tempo_bpm))
     valence_c = _closeness(target_valence, song_valence)
-    genre_c = 1.0 if target_genre and target_genre == song_genre else 0.0
+    genre_c = 1.0 if target_genre and _norm_category(target_genre) == _norm_category(song_genre) else 0.0
 
     score = (
         WEIGHTS["acousticness"] * acoustic_c
@@ -127,11 +136,9 @@ class Recommender:
 
     def recommend(self, user: UserProfile, k: int = 5) -> List[Song]:
         """Return the top-k songs ranked by score, highest first."""
-        ranked = sorted(
-            self.songs,
-            key=lambda s: self._score(user, s)[0],
-            reverse=True,
-        )
+        # Deterministic tie-break by title then id, independent of list order.
+        ranked = sorted(self.songs, key=lambda s: (s.title, s.id))
+        ranked.sort(key=lambda s: self._score(user, s)[0], reverse=True)
         return ranked[:k]
 
     def explain_recommendation(self, user: UserProfile, song: Song) -> str:
@@ -188,11 +195,11 @@ def score_song(user_prefs: Dict, song: Dict) -> Tuple[float, List[str]]:
     reasons: List[str] = []
     score = 0.0
 
-    # Categorical features: all-or-nothing points.
-    if user_prefs.get("genre") and user_prefs["genre"] == song["genre"]:
+    # Categorical features: all-or-nothing points (case/whitespace insensitive).
+    if user_prefs.get("genre") and _norm_category(user_prefs["genre"]) == _norm_category(song["genre"]):
         score += POINTS["genre"]
         reasons.append(f"matches your favorite genre ({song['genre']})")
-    if user_prefs.get("mood") and user_prefs["mood"] == song["mood"]:
+    if user_prefs.get("mood") and _norm_category(user_prefs["mood"]) == _norm_category(song["mood"]):
         score += POINTS["mood"]
         reasons.append(f"matches your mood ({song['mood']})")
 
@@ -228,4 +235,8 @@ def recommend_songs(
         score, reasons = score_song(user_prefs, song)
         scored.append((song, score, ", ".join(reasons)))
 
-    return sorted(scored, key=lambda item: item[1], reverse=True)[:k]
+    # Sort by score descending; break ties deterministically by title then id
+    # so results do not depend on catalog/CSV row order.
+    scored.sort(key=lambda item: (item[0].get("title", ""), item[0].get("id", 0)))
+    scored.sort(key=lambda item: item[1], reverse=True)
+    return scored[:k]
